@@ -1,4 +1,4 @@
-````markdown
+
 # Kali-like Terminal Zsh
 
 Make an Ubuntu-family or Debian-family Linux terminal **look and behave like a Kali Linux terminal** by using Kali Linux's own Zsh configuration.
