@@ -1,89 +1,72 @@
+# kali-like-teminal
 
-# Kali-like Terminal Zsh
+A production-ready installer for getting a **Kali-like Zsh terminal experience** on supported Ubuntu-family and Debian-family systems.
 
-Make an Ubuntu-family or Debian-family Linux terminal **look and behave like a Kali Linux terminal** by using Kali Linux's own Zsh configuration.
+> This project configures your shell experience only.
+> It does **not** install Kali Linux, replace your OS, or install Kali penetration-testing tools.
 
-This project does **not** install Kali Linux, replace your operating system, or install the Kali penetration-testing toolset.
+---
 
-Instead, it installs Zsh and the components expected by Kali's official `.zshrc`, downloads the current Kali configuration, validates it, safely backs up your existing configuration, and makes Zsh your default login shell.
+## What this project does
 
-## Features
+- Detects whether your system is in the Ubuntu-family or Debian-family
+- Installs required Zsh packages using APT
+- Downloads Kali Linux's current upstream `.zshrc` from `kali-defaults`
+- Validates downloaded content before applying it
+- Backs up your existing `~/.zshrc`
+- Installs the upstream Kali config as a managed file in your home directory
+- Installs a small `~/.zshrc` wrapper that sources the managed upstream file
+- Sets your default login shell to Zsh (if not already)
+- Performs final consistency checks
 
-- Uses Kali Linux's official `.zshrc`
-- Kali-style two-line prompt
-- Kali prompt symbol (`㉿`)
-- Zsh native completion
-- Zsh history configuration
-- `zsh-syntax-highlighting`
-- `zsh-autosuggestions`
-- Kali-style aliases and terminal colors
-- Terminal title integration
-- Optional `command-not-found` integration
-- Existing `~/.zshrc` is backed up before replacement
-- Downloaded `.zshrc` is validated before installation
-- Downloaded `.zshrc` is checked with `zsh -n`
-- Temporary-file based installation
-- Failure rollback for user configuration and login shell
-- Automatically configures Zsh as the default login shell
-- Safe to run again
-- No Oh My Zsh
-- No Powerlevel10k
-- No Starship
+## What this project does **not** do
+
+- Does not install Kali Linux
+- Does not install Kali metapackages or pentesting tools
+- Does not replace your desktop environment
+- Does not replace your terminal emulator
+- Does not change unrelated system configuration
+- Does not use Oh My Zsh, Powerlevel10k, Starship, or other unrelated frameworks
+
+---
 
 ## Supported systems
 
-This project provides two installers.
+This repository ships two installers:
 
-### Ubuntu-family distributions
+- `ubuntu-setup.sh` → Ubuntu-family systems
+- `debian-setup.sh` → Debian-family systems (non-Ubuntu)
 
-Use:
+Detection is based on `/etc/os-release` (`ID`, `ID_LIKE`) and explicit family checks.
+Unsupported systems fail safely with a clear message.
 
-```bash
-./ubuntu-setup.sh
-````
+### Typical Ubuntu-family examples
 
-The installer detects Ubuntu-family systems through `/etc/os-release` and supports APT-based Ubuntu derivatives.
+- Ubuntu
+- Linux Mint (Ubuntu edition)
+- Pop!_OS
+- Zorin OS
 
-Examples include:
+### Typical Debian-family examples
 
-* Ubuntu
-* Linux Mint
-* Pop!_OS
-* Zorin OS
-* Other Ubuntu-family APT distributions
+- Debian
+- Kali Linux
+- LMDE
+- MX Linux
 
-### Debian-family distributions
-
-Use:
-
-```bash
-./debian-setup.sh
-```
-
-The installer detects Debian-family systems through `/etc/os-release`.
-
-Examples include:
-
-* Debian
-* Kali Linux
-* Linux Mint Debian Edition
-* MX Linux
-* Other Debian-family APT distributions
-
-Ubuntu-family systems are intentionally rejected by `debian-setup.sh`.
+---
 
 ## Requirements
 
-* Ubuntu-family or Debian-family Linux distribution
-* APT package manager
-* Normal user account
-* `sudo` privileges
-* Internet connection
-* HTTPS access to GitLab
+- Linux system in supported family
+- APT package manager
+- Non-root user account
+- `sudo` privileges
+- Internet access to:
+  - `gitlab.com` (Kali upstream source)
+  - APT repositories configured on your system
 
-Do **not** run the installers with `sudo`.
-
-Run them as your normal user. Administrative operations are performed through `sudo` when required.
+---
 
 ## Installation
 
@@ -94,187 +77,166 @@ git clone https://github.com/reduxailabs-max/kali-like-teminal.git
 cd kali-like-teminal
 ```
 
-### Ubuntu or Ubuntu-based distribution
+Make scripts executable:
 
 ```bash
-chmod +x ubuntu-setup.sh
+chmod +x ubuntu-setup.sh debian-setup.sh
+```
+
+Run the correct installer:
+
+### Ubuntu-family
+
+```bash
 ./ubuntu-setup.sh
 ```
 
-### Debian or Debian-based distribution
+### Debian-family
 
 ```bash
-chmod +x debian-setup.sh
 ./debian-setup.sh
 ```
 
-The installer will request your `sudo` password when necessary.
+> Run as your normal user. Do **not** run with `sudo`.
 
-## What the installer does
+---
 
-The installation process is deliberately ordered so that the user's existing shell configuration is protected before it is replaced.
+## Upstream Kali configuration source
 
-```text
-Detect distribution
-        │
-        ▼
-Verify environment
-        │
-        ▼
-Install required packages
-        │
-        ▼
-Verify Zsh dependencies
-        │
-        ▼
-Download Kali's .zshrc
-        │
-        ▼
-Validate downloaded file
-        │
-        ▼
-Validate Zsh syntax
-        │
-        ▼
-Back up existing ~/.zshrc
-        │
-        ▼
-Install Kali's .zshrc
-        │
-        ▼
-Ensure Zsh is in /etc/shells
-        │
-        ▼
-Set Zsh as login shell
-        │
-        ▼
-Final verification
-```
+This project uses Kali's official upstream `.zshrc` from `kali-defaults`:
 
-If an important installation step fails, the installer attempts to restore the previous `~/.zshrc` and login shell.
+- Project: <https://gitlab.com/kalilinux/packages/kali-defaults>
+- File (browser): <https://gitlab.com/kalilinux/packages/kali-defaults/-/blob/kali/master/etc/skel/.zshrc>
+- Raw download URL used by installers:  
+  <https://gitlab.com/kalilinux/packages/kali-defaults/-/raw/kali/master/etc/skel/.zshrc>
 
-## What gets installed
+The repository intentionally does **not** keep a forked copy of Kali's `.zshrc`.
+Each run fetches the current upstream version.
 
-| Package                   | Purpose                                |
-| ------------------------- | -------------------------------------- |
-| `zsh`                     | Z shell                                |
-| `zsh-syntax-highlighting` | Command syntax highlighting            |
-| `zsh-autosuggestions`     | History-based command suggestions      |
-| `curl`                    | Downloads Kali's `.zshrc`              |
-| `command-not-found`       | Optional command-not-found integration |
+---
 
-The Kali `.zshrc` itself uses Zsh's built-in completion system (`compinit`) rather than Oh My Zsh or another completion framework.
+## Installation flow
 
-## Kali `.zshrc`
+The installer follows a controlled sequence:
 
-The installer downloads Kali's configuration directly from the official Kali Linux `kali-defaults` repository:
+1. Environment checks and distribution-family validation
+2. `sudo` authentication check
+3. APT update and dependency installation
+4. Runtime dependency verification
+5. Secure HTTPS download of upstream `.zshrc`
+6. Content and syntax validation (`zsh -n`)
+7. Backup of existing `~/.zshrc`
+8. Managed install of upstream file
+9. Install of `~/.zshrc` wrapper
+10. Set login shell to Zsh
+11. Final verification
 
-https://gitlab.com/kalilinux/packages/kali-defaults/-/blob/kali/master/etc/skel/.zshrc
+---
 
-Raw source:
+## What is installed
 
-https://gitlab.com/kalilinux/packages/kali-defaults/-/raw/kali/master/etc/skel/.zshrc
+Required packages:
 
-The repository intentionally does not maintain its own copy of Kali's `.zshrc`.
+- `zsh`
+- `zsh-syntax-highlighting`
+- `zsh-autosuggestions`
+- `curl`
 
-As a result, running the installer again retrieves the current version from Kali.
+Optional (if available in your repositories):
 
-## Why no Oh My Zsh?
+- `command-not-found`
 
-The goal of this project is to use **Kali Linux's actual Zsh configuration**.
+Managed files created in your home directory:
 
-Kali's configuration already provides its own:
+- `~/.local/share/kali-like-terminal/kali-upstream.zshrc` (downloaded upstream config)
+- `~/.zshrc` (generated wrapper that sources the managed upstream file)
 
-* Prompt
-* Completion configuration
-* History settings
-* Key bindings
-* Syntax-highlighting configuration
-* Autosuggestion integration
-* Aliases
-* Terminal title handling
-* Color configuration
+Backups:
 
-Therefore this project does not add:
+- `~/.local/state/kali-like-terminal/backups/zshrc.<timestamp>.<pid>.bak`
 
-* Oh My Zsh
-* Powerlevel10k
-* Starship
-* Other third-party prompt frameworks
+---
 
-## Existing `~/.zshrc`
+## Safety and rollback behavior
 
-If you already have a `~/.zshrc`, it is backed up before the Kali configuration is installed.
+- Existing `~/.zshrc` is backed up before replacement
+- Installer uses strict Bash mode (`set -Eeuo pipefail`)
+- Temporary files are isolated in `mktemp` directories
+- On failure during critical stages, installer attempts rollback:
+  - Restore previous `~/.zshrc`
+  - Restore previous login shell (if changed)
+  - Restore previous managed upstream file (when applicable)
 
-Example:
+If rollback cannot complete automatically, the installer tells you exactly where your backup is.
 
-```text
-~/.zshrc.backup.20260824-235000.12345
-```
+---
 
-List your backups:
+## Idempotency and repeated runs
+
+You can safely re-run the installer.
+
+Each run converges to the same intended final state:
+
+- packages present
+- latest upstream Kali `.zshrc` downloaded
+- wrapper + managed file in place
+- login shell set to Zsh
+
+A new backup is created whenever a pre-existing `~/.zshrc` is present.
+
+---
+
+## Verify installation
+
+Check login shell from account database:
 
 ```bash
-ls -lt ~/.zshrc.backup.*
+getent passwd "$USER" | cut -d: -f7
 ```
 
-Restore one:
-
-```bash
-cp ~/.zshrc.backup.YYYYMMDD-HHMMSS.PID ~/.zshrc
-```
-
-## After installation
-
-The current terminal process does not automatically change shells.
-
-The recommended procedure is:
-
-1. Log out.
-2. Log back in.
-3. Open a new terminal.
-
-Or test immediately:
-
-```bash
-exec zsh
-```
-
-## Verify the default shell
-
-Check the configured login shell:
-
-```bash
-echo "$SHELL"
-```
-
-Expected:
-
-```text
-/usr/bin/zsh
-```
-
-Check the shell currently running:
+Check current shell process:
 
 ```bash
 echo "$0"
 ```
 
-Expected:
+Check default shell environment variable in new session:
 
-```text
-zsh
+```bash
+echo "$SHELL"
 ```
 
-Check the installed version:
+Check Zsh version:
 
 ```bash
 zsh --version
 ```
 
-## Restore Bash
+Start immediately without logout:
 
-To return to Bash:
+```bash
+exec zsh
+```
+
+---
+
+## Restore previous shell/configuration
+
+### Restore previous `~/.zshrc`
+
+List backups:
+
+```bash
+ls -lt ~/.local/state/kali-like-terminal/backups/
+```
+
+Restore one backup:
+
+```bash
+cp ~/.local/state/kali-like-terminal/backups/<backup-file> ~/.zshrc
+```
+
+### Return default shell to Bash
 
 ```bash
 chsh -s /bin/bash
@@ -282,85 +244,40 @@ chsh -s /bin/bash
 
 Then log out and log back in.
 
-Verify:
+---
 
-```bash
-echo "$SHELL"
-```
+## Troubleshooting
 
-Expected:
+### "Unsupported distribution"
 
-```text
-/bin/bash
-```
+Use the correct installer for your family. If your distro is unusual, inspect `/etc/os-release` and open an issue with details.
 
-## Re-running the installer
+### `sudo` authentication failed
 
-The installers are designed to be safely rerunnable.
+Ensure your user has sudo privileges and retry.
 
-A subsequent run will:
+### APT install failed
 
-1. Detect the operating-system family.
-2. Verify the environment.
-3. Update package metadata.
-4. Install or verify dependencies.
-5. Download the current Kali `.zshrc`.
-6. Validate the configuration.
-7. Back up the current `~/.zshrc`.
-8. Install the new Kali configuration.
-9. Ensure Zsh is the login shell.
-10. Verify the final state.
+Check network connectivity, repository configuration, and package availability. Re-run the installer after fixing APT.
 
-A new backup is created on each run.
+### Upstream download/validation failed
 
-## Validation and safety
+This can happen with temporary network issues or upstream format changes. Retry first. If persistent, open an issue with installer output.
 
-Before installing Kali's `.zshrc`, the installer performs several checks.
+### `chsh` failed
 
-### HTTPS download
+Your environment may restrict shell changes (policy/SSO/container). The rest of the installation may still be present; you can run `zsh` manually.
 
-The configuration is downloaded over HTTPS.
+---
 
-### Download limits
+## Limitations
 
-The installer enforces a maximum download size to prevent an unexpected response from being written indefinitely.
+- This project depends on Kali upstream `.zshrc` behavior at installation time
+- Validation is defensive but not cryptographic signature verification
+- Family detection is robust but cannot guarantee support for every derivative distro variant
+- Some environments (enterprise policy, containers, restricted PAM/chsh) may block default shell changes
 
-### Structural validation
-
-The downloaded file must contain expected Kali configuration markers and integrations.
-
-### Zsh syntax validation
-
-The file is checked using:
-
-```bash
-zsh -n
-```
-
-This validates the shell syntax without executing the configuration.
-
-### Existing configuration backup
-
-An existing `~/.zshrc` is preserved before replacement.
-
-### Rollback
-
-If a later installation step fails, the installer attempts to restore:
-
-* The previous `~/.zshrc`
-* The previous login shell
-
-## Security considerations
-
-This project intentionally downloads an executable shell configuration from the Kali Linux GitLab repository.
-
-A `.zshrc` is shell code and is executed when Zsh starts.
-
-Therefore, installing this project means trusting the upstream Kali Linux `kali-defaults` repository at installation time.
-
-The installer performs validation, but validation is **not a cryptographic authenticity guarantee**.
-
-For a stronger supply-chain model, a future version could support a pinned Kali Git commit and verify a known SHA-256 checksum.
+---
 
 ## Project structure
 
@@ -368,60 +285,22 @@ For a stronger supply-chain model, a future version could support a pinned Kali 
 kali-like-teminal/
 ├── ubuntu-setup.sh
 ├── debian-setup.sh
-└── README.md
+├── README.md
+└── LICENSE
 ```
 
-### `ubuntu-setup.sh`
+---
 
-Installer for Ubuntu-family APT distributions.
+## Relationship to Kali Linux
 
-### `debian-setup.sh`
+This project is an independent installer utility.
+It is **not** an official Kali Linux project.
 
-Installer for Debian-family APT distributions.
+It consumes Kali upstream shell configuration from the official `kali-defaults` repository to provide a Kali-like terminal experience on supported systems.
 
-## Example result
+---
 
-After installation, the Zsh prompt follows Kali's own prompt configuration, for example:
+## License and third-party distinction
 
-```text
-┌──(user㉿hostname)-[~/directory]
-└─$
-```
-
-The exact appearance can vary depending on the terminal, username, hostname, working directory, terminal color support, and environment.
-
-## Important distinction
-
-This project creates a **Kali-like terminal environment**.
-
-It does not turn the operating system into Kali Linux.
-
-For example:
-
-```text
-Ubuntu
-  └── GNOME Terminal
-       └── Zsh
-            └── Kali .zshrc
-```
-
-The underlying operating system and terminal emulator remain unchanged.
-
-## Source
-
-Kali Linux `kali-defaults`:
-
-https://gitlab.com/kalilinux/packages/kali-defaults
-
-Kali Linux `.zshrc`:
-
-https://gitlab.com/kalilinux/packages/kali-defaults/-/blob/kali/master/etc/skel/.zshrc
-
-## License
-
-This repository contains installation scripts that retrieve Kali Linux's Zsh configuration from the official Kali Linux repository.
-
-Kali Linux and its associated components are maintained by the Kali Linux project.
-
-```
-```
+- Installer code in this repository is licensed under the MIT License (see `LICENSE`).
+- Kali upstream `.zshrc` is not distributed as a vendored copy in this repo; it is downloaded at install time from Kali's official source and remains subject to Kali's own licensing/ownership terms.

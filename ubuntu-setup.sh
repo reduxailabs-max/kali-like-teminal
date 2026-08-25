@@ -1,546 +1,469 @@
-```bash
 #!/usr/bin/env bash
 
-# Kali-like Terminal Zsh
+# kali-like-teminal
 # Ubuntu-family installer
-#
-# Installs Zsh and the components required by Kali Linux's official
-# .zshrc, downloads Kali's current .zshrc, validates it, safely
-# replaces ~/.zshrc, and makes Zsh the user's default login shell.
-#
-# Supported:
-#   Ubuntu and Ubuntu-family distributions using APT.
-#
-# Repository:
-#   https://github.com/reduxailabs-max/kali-like-teminal
-#
-# Kali .zshrc source:
-#   https://gitlab.com/kalilinux/packages/kali-defaults/-/blob/kali/master/etc/skel/.zshrc
-#
-# IMPORTANT:
-#   Run this script as your normal user.
-#   Do NOT run it with sudo.
 
 set -Eeuo pipefail
 IFS=$'\n\t'
+umask 077
 
-readonly KALI_ZSHRC_URL="https://gitlab.com/kalilinux/packages/kali-defaults/-/raw/kali/master/etc/skel/.zshrc"
+export PATH='/usr/sbin:/usr/bin:/sbin:/bin'
 
+readonly SCRIPT_VERSION='1.0.0'
+readonly KALI_ZSHRC_URL='https://gitlab.com/kalilinux/packages/kali-defaults/-/raw/kali/master/etc/skel/.zshrc'
+readonly MAX_ZSHRC_SIZE=262144
+readonly MIN_ZSHRC_SIZE=1024
+readonly MANAGED_ROOT_REL='.local/share/kali-like-terminal'
+readonly BACKUP_ROOT_REL='.local/state/kali-like-terminal/backups'
 readonly REQUIRED_PACKAGES=(
-    zsh
-    zsh-syntax-highlighting
-    zsh-autosuggestions
-    curl
+  zsh
+  zsh-syntax-highlighting
+  zsh-autosuggestions
+  curl
 )
 
-readonly MAX_ZSHRC_SIZE=1048576
+CURRENT_USER=''
+HOME_DIR=''
+TMP_DIR=''
+BACKUP_FILE=''
+ORIGINAL_LOGIN_SHELL=''
+ZSH_PATH=''
 
-CURRENT_USER=""
-HOME_DIR=""
-TMP_DIR=""
-BACKUP_FILE=""
-ORIGINAL_LOGIN_SHELL=""
+ORIGINAL_ZSHRC_EXISTS='false'
+ZSHRC_REPLACED='false'
+LOGIN_SHELL_CHANGED='false'
+MANAGED_ZSHRC_REPLACED='false'
 
-ORIGINAL_ZSHRC_EXISTS=false
-ZSHRC_INSTALLED=false
-LOGIN_SHELL_CHANGED=false
-SHELL_ENTRY_ADDED=false
-
-
-# -----------------------------------------------------------------------------
-# Output
-# -----------------------------------------------------------------------------
+ROLLBACK_MANAGED_PREV=''
+ROLLBACK_IN_PROGRESS='false'
+COMPLETED='false'
 
 info() {
-    printf '\033[1;34m[INFO]\033[0m %s\n' "$*"
+  printf '\033[1;34m[INFO]\033[0m %s\n' "$*"
 }
 
-success() {
-    printf '\033[1;32m[ OK ]\033[0m %s\n' "$*"
+ok() {
+  printf '\033[1;32m[ OK ]\033[0m %s\n' "$*"
 }
 
 warn() {
-    printf '\033[1;33m[WARN]\033[0m %s\n' "$*" >&2
+  printf '\033[1;33m[WARN]\033[0m %s\n' "$*" >&2
 }
 
-error() {
-    printf '\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2
-}
-
-die() {
-    error "$*"
-    exit 1
+err() {
+  printf '\033[1;31m[ERR ]\033[0m %s\n' "$*" >&2
 }
 
 section() {
-    printf '\n\033[1;36m==> %s\033[0m\n' "$*"
+  printf '\n\033[1;36m==> %s\033[0m\n' "$*"
 }
 
-
-# -----------------------------------------------------------------------------
-# Cleanup
-# -----------------------------------------------------------------------------
-
-cleanup() {
-    if [[ -n "${TMP_DIR:-}" && -d "$TMP_DIR" ]]; then
-        rm -rf -- "$TMP_DIR"
-    fi
+die() {
+  err "$*"
+  perform_rollback 1
 }
 
-trap cleanup EXIT
+cleanup_tmp() {
+  if [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]]; then
+    rm -rf -- "$TMP_DIR"
+  fi
+}
 
+perform_rollback() {
+  local exit_code="$1"
 
-# -----------------------------------------------------------------------------
-# Rollback
-# -----------------------------------------------------------------------------
-
-rollback() {
-    local exit_code=$?
-
-    warn "Installation failed. Attempting rollback."
-
-    if [[ "$ZSHRC_INSTALLED" == true ]]; then
-        if [[ "$ORIGINAL_ZSHRC_EXISTS" == true &&
-              -n "${BACKUP_FILE:-}" &&
-              -f "$BACKUP_FILE" ]]; then
-
-            if cp -- "$BACKUP_FILE" "$HOME_DIR/.zshrc"; then
-                success "Previous ~/.zshrc restored."
-            else
-                error "Could not restore the previous ~/.zshrc."
-                error "Your backup is still available at:"
-                error "  $BACKUP_FILE"
-            fi
-        else
-            rm -f -- "$HOME_DIR/.zshrc" || true
-        fi
-    fi
-
-    if [[ "$LOGIN_SHELL_CHANGED" == true &&
-          -n "${ORIGINAL_LOGIN_SHELL:-}" ]]; then
-
-        if chsh -s "$ORIGINAL_LOGIN_SHELL" "$CURRENT_USER" >/dev/null 2>&1; then
-            success "Previous login shell restored."
-        else
-            warn "Could not automatically restore the previous login shell."
-            warn "Previous login shell: $ORIGINAL_LOGIN_SHELL"
-        fi
-    fi
-
-    if [[ "$SHELL_ENTRY_ADDED" == true ]]; then
-        warn "Zsh was added to /etc/shells during installation."
-        warn "The entry was intentionally left in place."
-    fi
-
+  if [[ "$COMPLETED" == 'true' || "$ROLLBACK_IN_PROGRESS" == 'true' ]]; then
     exit "$exit_code"
+  fi
+  ROLLBACK_IN_PROGRESS='true'
+
+  local rollback_needed='false'
+  if [[ "$ZSHRC_REPLACED" == 'true' || "$MANAGED_ZSHRC_REPLACED" == 'true' || "$LOGIN_SHELL_CHANGED" == 'true' ]]; then
+    rollback_needed='true'
+  fi
+
+  if [[ "$rollback_needed" != 'true' ]]; then
+    err 'Installation aborted before shell changes were applied.'
+    if [[ -n "$BACKUP_FILE" ]]; then
+      warn "A backup was created and kept at: $BACKUP_FILE"
+    fi
+    exit "$exit_code"
+  fi
+
+  warn 'Installation did not complete. Attempting rollback.'
+
+  if [[ "$ZSHRC_REPLACED" == 'true' ]]; then
+    if [[ "$ORIGINAL_ZSHRC_EXISTS" == 'true' && -n "$BACKUP_FILE" && -f "$BACKUP_FILE" ]]; then
+      if cp -- "$BACKUP_FILE" "$HOME_DIR/.zshrc"; then
+        ok 'Restored previous ~/.zshrc from backup.'
+      else
+        warn "Could not restore ~/.zshrc automatically. Backup remains at: $BACKUP_FILE"
+      fi
+    else
+      rm -f -- "$HOME_DIR/.zshrc" || true
+    fi
+  fi
+
+  if [[ "$MANAGED_ZSHRC_REPLACED" == 'true' ]]; then
+    if [[ -n "$ROLLBACK_MANAGED_PREV" && -f "$ROLLBACK_MANAGED_PREV" ]]; then
+      cp -- "$ROLLBACK_MANAGED_PREV" "$HOME_DIR/$MANAGED_ROOT_REL/kali-upstream.zshrc" || true
+    else
+      rm -f -- "$HOME_DIR/$MANAGED_ROOT_REL/kali-upstream.zshrc" || true
+    fi
+  fi
+
+  if [[ "$LOGIN_SHELL_CHANGED" == 'true' && -n "$ORIGINAL_LOGIN_SHELL" ]]; then
+    if chsh -s "$ORIGINAL_LOGIN_SHELL" "$CURRENT_USER" >/dev/null 2>&1; then
+      ok 'Restored previous login shell.'
+    else
+      warn "Could not restore login shell automatically. Previous shell: $ORIGINAL_LOGIN_SHELL"
+    fi
+  fi
+
+  err 'Installer aborted before completion.'
+  exit "$exit_code"
 }
 
-trap rollback ERR
+rollback_trap() {
+  perform_rollback "$?"
+}
 
-
-# -----------------------------------------------------------------------------
-# Helpers
-# -----------------------------------------------------------------------------
+trap cleanup_tmp EXIT
+trap rollback_trap ERR INT TERM
 
 require_command() {
-    local command_name="$1"
-
-    command -v "$command_name" >/dev/null 2>&1 ||
-        die "Required command not found: $command_name"
+  local name="$1"
+  command -v "$name" >/dev/null 2>&1 || die "Required command not found: $name"
 }
 
-get_home_directory() {
-    getent passwd "$CURRENT_USER" | cut -d: -f6
+retry() {
+  local attempts="$1"
+  shift
+
+  local i=1
+  until "$@"; do
+    if (( i >= attempts )); then
+      return 1
+    fi
+    warn "Command failed (attempt $i/$attempts). Retrying..."
+    sleep $((i * 2))
+    i=$((i + 1))
+  done
 }
 
 is_ubuntu_family() {
-    local id="${ID:-}"
-    local id_like="${ID_LIKE:-}"
-
-    [[ "$id" == "ubuntu" ]] && return 0
-    [[ " $id_like " == *" ubuntu "* ]] && return 0
-
-    return 1
+  [[ "${ID:-}" == 'ubuntu' ]] && return 0
+  [[ " ${ID_LIKE:-} " == *' ubuntu '* ]] && return 0
+  return 1
 }
 
+is_debian_family() {
+  [[ "${ID:-}" == 'debian' ]] && return 0
+  [[ "${ID:-}" == 'kali' ]] && return 0
+  [[ " ${ID_LIKE:-} " == *' debian '* ]] && return 0
+  return 1
+}
 
-# -----------------------------------------------------------------------------
-# Environment checks
-# -----------------------------------------------------------------------------
+load_os_release() {
+  [[ -r /etc/os-release ]] || die 'Cannot read /etc/os-release.'
+  # shellcheck disable=SC1091
+  source /etc/os-release
+}
 
 check_environment() {
-    section "Checking environment"
+  section 'Checking environment'
 
-    if [[ "${EUID}" -eq 0 ]]; then
-        die "Do not run this script as root or with sudo."
-    fi
+  [[ "$EUID" -ne 0 ]] || die 'Run this script as your normal user, not as root.'
 
-    require_command id
-    require_command awk
-    require_command getent
-    require_command grep
-    require_command sudo
+  require_command id
+  require_command getent
+  require_command awk
+  require_command grep
+  require_command sudo
+  require_command apt-get
+  require_command dpkg-query
+  require_command chsh
+  require_command mktemp
+  require_command install
 
-    if [[ ! -f /etc/os-release ]]; then
-        die "/etc/os-release was not found."
-    fi
+  load_os_release
 
-    # shellcheck disable=SC1091
-    source /etc/os-release
+  if ! is_ubuntu_family; then
+    die "This installer only supports Ubuntu-family systems. Detected: ${PRETTY_NAME:-unknown}"
+  fi
 
-    if ! is_ubuntu_family; then
-        die "This installer is for Ubuntu-family distributions."
-        die "Detected: ${PRETTY_NAME:-unknown}"
-    fi
+  if ! is_debian_family; then
+    die 'Unexpected os-release data: system is not Debian-based.'
+  fi
 
-    CURRENT_USER="$(id -un)"
-    HOME_DIR="$(get_home_directory)"
+  CURRENT_USER="$(id -un)"
+  HOME_DIR="$(getent passwd "$CURRENT_USER" | awk -F: '{print $6}')"
 
-    if [[ -z "$HOME_DIR" || ! -d "$HOME_DIR" ]]; then
-        die "Could not determine a valid home directory for $CURRENT_USER."
-    fi
+  [[ -n "$HOME_DIR" && -d "$HOME_DIR" ]] || die "Could not determine home directory for $CURRENT_USER."
 
-    if [[ "${HOME:-}" != "$HOME_DIR" ]]; then
-        warn "HOME differs from the account database."
-        warn "Using account home directory: $HOME_DIR"
-    fi
+  if [[ "${HOME:-}" != "$HOME_DIR" ]]; then
+    warn "HOME environment differs from passwd database. Using: $HOME_DIR"
+  fi
 
-    sudo -v ||
-        die "sudo authentication failed."
+  ZSH_PATH="$(command -v zsh || true)"
+  ORIGINAL_LOGIN_SHELL="$(getent passwd "$CURRENT_USER" | awk -F: '{print $7}')"
 
-    success "Distribution: ${PRETTY_NAME:-unknown}"
-    success "User:         $CURRENT_USER"
-    success "Home:         $HOME_DIR"
+  sudo -v >/dev/null
+
+  ok "Detected distribution: ${PRETTY_NAME:-unknown}"
+  ok "Installer target: Ubuntu-family"
+  ok "User: $CURRENT_USER"
+  ok "Home: $HOME_DIR"
 }
 
+apt_install_packages() {
+  section 'Installing dependencies'
 
-# -----------------------------------------------------------------------------
-# Package installation
-# -----------------------------------------------------------------------------
+  info 'Updating APT metadata...'
+  retry 3 sudo apt-get -q update
 
-install_packages() {
-    section "Installing required packages"
+  info 'Installing required packages...'
+  retry 2 sudo DEBIAN_FRONTEND=noninteractive apt-get -y -q install --no-install-recommends "${REQUIRED_PACKAGES[@]}"
 
-    require_command apt-get
-
-    info "Updating APT package indexes..."
-
-    sudo apt-get update
-
-    info "Installing Zsh and required components..."
-
-    sudo DEBIAN_FRONTEND=noninteractive \
-        apt-get install -y --no-install-recommends \
-        "${REQUIRED_PACKAGES[@]}"
-
-    # command-not-found is optional because some Ubuntu-family distributions
-    # do not provide it in their currently enabled repositories.
-    if apt-cache show command-not-found >/dev/null 2>&1; then
-        if ! dpkg-query -W -f='${Status}' command-not-found 2>/dev/null |
-            grep -q 'install ok installed'; then
-
-            info "Installing optional command-not-found integration..."
-
-            sudo DEBIAN_FRONTEND=noninteractive \
-                apt-get install -y --no-install-recommends command-not-found
-        fi
-    else
-        warn "command-not-found is unavailable in the configured repositories."
-        warn "Continuing without it."
+  if apt-cache show command-not-found >/dev/null 2>&1; then
+    if ! dpkg-query -W -f='${Status}' command-not-found 2>/dev/null | grep -q 'install ok installed'; then
+      info 'Installing optional command-not-found integration...'
+      sudo DEBIAN_FRONTEND=noninteractive apt-get -y -q install --no-install-recommends command-not-found
     fi
+  else
+    warn 'Optional package command-not-found not available in current repositories.'
+  fi
 
-    success "Package installation completed."
+  ZSH_PATH="$(command -v zsh)"
+  ok 'Dependency installation completed.'
 }
 
+verify_runtime_dependencies() {
+  section 'Verifying installed runtime components'
 
-# -----------------------------------------------------------------------------
-# Dependency verification
-# -----------------------------------------------------------------------------
+  require_command zsh
+  require_command curl
 
-verify_dependencies() {
-    section "Verifying installed components"
+  [[ -x "$ZSH_PATH" ]] || die "Zsh binary is not executable: $ZSH_PATH"
 
-    require_command zsh
-    require_command curl
-    require_command chsh
-    require_command getent
-    require_command mktemp
-    require_command install
+  [[ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] ||
+    die 'zsh-syntax-highlighting package content not found.'
 
-    local zsh_path
-    zsh_path="$(command -v zsh)"
+  [[ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]] ||
+    die 'zsh-autosuggestions package content not found.'
 
-    [[ -x "$zsh_path" ]] ||
-        die "Zsh is not executable: $zsh_path"
-
-    [[ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] ||
-        die "zsh-syntax-highlighting is missing."
-
-    [[ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]] ||
-        die "zsh-autosuggestions is missing."
-
-    success "Zsh:                       $zsh_path"
-    success "zsh-syntax-highlighting:   available"
-    success "zsh-autosuggestions:       available"
+  ok "Zsh binary: $ZSH_PATH"
+  ok 'zsh-syntax-highlighting: present'
+  ok 'zsh-autosuggestions: present'
 }
 
-
-# -----------------------------------------------------------------------------
-# Download Kali configuration
-# -----------------------------------------------------------------------------
-
-download_kali_zshrc() {
-    section "Downloading Kali's official .zshrc"
-
-    TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kali-like-zsh.XXXXXXXXXX")"
-
-    local downloaded_file="$TMP_DIR/.zshrc"
-
-    info "Source:"
-    printf '       %s\n' "$KALI_ZSHRC_URL"
-
-    if ! curl \
-        --fail \
-        --silent \
-        --show-error \
-        --location \
-        --proto '=https' \
-        --tlsv1.2 \
-        --retry 5 \
-        --retry-delay 2 \
-        --connect-timeout 10 \
-        --max-time 60 \
-        --max-filesize "$MAX_ZSHRC_SIZE" \
-        --output "$downloaded_file" \
-        "$KALI_ZSHRC_URL"; then
-
-        die "Failed to download Kali's .zshrc."
-    fi
-
-    [[ -s "$downloaded_file" ]] ||
-        die "Downloaded .zshrc is empty."
-
-    local file_size
-    file_size="$(wc -c < "$downloaded_file")"
-
-    if (( file_size < 500 || file_size > MAX_ZSHRC_SIZE )); then
-        die "Downloaded .zshrc has an unexpected size: ${file_size} bytes."
-    fi
-
-    success "Kali .zshrc downloaded."
+prepare_tempdir() {
+  TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kali-like-terminal.XXXXXXXX")"
 }
 
+download_upstream_zshrc() {
+  section 'Downloading upstream Kali .zshrc'
 
-# -----------------------------------------------------------------------------
-# Kali configuration validation
-# -----------------------------------------------------------------------------
+  prepare_tempdir
+  local out_file="$TMP_DIR/upstream.zshrc"
 
-validate_kali_zshrc() {
-    section "Validating Kali's .zshrc"
+  info "Source: $KALI_ZSHRC_URL"
 
-    local file="$TMP_DIR/.zshrc"
+  retry 3 curl \
+    --fail \
+    --silent \
+    --show-error \
+    --location \
+    --proto '=https' \
+    --tlsv1.2 \
+    --connect-timeout 10 \
+    --max-time 60 \
+    --max-filesize "$MAX_ZSHRC_SIZE" \
+    --output "$out_file" \
+    "$KALI_ZSHRC_URL"
 
-    # Verify that the downloaded file contains the major parts expected
-    # from Kali's configuration.
-    grep -q '^# START KALI CONFIG VARIABLES$' "$file" ||
-        die "Kali configuration marker was not found."
+  [[ -s "$out_file" ]] || die 'Downloaded Kali .zshrc is empty.'
 
-    grep -q '^PROMPT_ALTERNATIVE=' "$file" ||
-        die "Kali prompt configuration was not found."
+  local size
+  size="$(wc -c < "$out_file")"
+  if (( size < MIN_ZSHRC_SIZE || size > MAX_ZSHRC_SIZE )); then
+    die "Downloaded .zshrc has unexpected size: $size bytes"
+  fi
 
-    grep -q '/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh' "$file" ||
-        die "Kali syntax-highlighting integration was not found."
+  if ! grep -Iq . "$out_file"; then
+    die 'Downloaded .zshrc does not look like a text file.'
+  fi
 
-    grep -q '/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh' "$file" ||
-        die "Kali autosuggestions integration was not found."
-
-    # Validate shell syntax without executing the configuration.
-    if ! zsh -n "$file"; then
-        die "Downloaded Kali .zshrc failed Zsh syntax validation."
-    fi
-
-    success "Kali .zshrc passed structural validation."
-    success "Kali .zshrc passed Zsh syntax validation."
+  ok "Downloaded upstream .zshrc (${size} bytes)."
 }
 
+validate_upstream_zshrc() {
+  section 'Validating upstream Kali .zshrc'
 
-# -----------------------------------------------------------------------------
-# Existing configuration backup
-# -----------------------------------------------------------------------------
+  local file="$TMP_DIR/upstream.zshrc"
 
-backup_existing_zshrc() {
-    section "Protecting existing ~/.zshrc"
+  zsh -n "$file" || die 'Downloaded .zshrc failed syntax validation (zsh -n).'
 
-    local target="$HOME_DIR/.zshrc"
+  grep -q 'configure_prompt' "$file" ||
+    die 'Downloaded .zshrc does not include expected prompt configuration.'
 
-    if [[ ! -e "$target" ]]; then
-        info "No existing ~/.zshrc found."
-        return
-    fi
+  grep -q 'PROMPT_ALTERNATIVE=' "$file" ||
+    die 'Downloaded .zshrc does not include expected Kali prompt variable.'
 
-    [[ -f "$target" ]] ||
-        die "$target exists but is not a regular file."
+  grep -q 'zsh-syntax-highlighting' "$file" ||
+    die 'Downloaded .zshrc does not include expected syntax-highlighting integration.'
 
-    ORIGINAL_ZSHRC_EXISTS=true
+  grep -q 'zsh-autosuggestions' "$file" ||
+    die 'Downloaded .zshrc does not include expected autosuggestions integration.'
 
-    BACKUP_FILE="$HOME_DIR/.zshrc.backup.$(date '+%Y%m%d-%H%M%S').$$"
-
-    cp --preserve=mode,ownership,timestamps \
-        "$target" "$BACKUP_FILE" ||
-        die "Failed to back up the existing ~/.zshrc."
-
-    success "Backup created:"
-    printf '       %s\n' "$BACKUP_FILE"
+  ok 'Upstream .zshrc passed validation checks.'
 }
 
+backup_existing_user_zshrc() {
+  section 'Backing up existing ~/.zshrc'
 
-# -----------------------------------------------------------------------------
-# Install Kali configuration
-# -----------------------------------------------------------------------------
+  local current="$HOME_DIR/.zshrc"
 
-install_kali_zshrc() {
-    section "Installing Kali's .zshrc"
+  mkdir -p "$HOME_DIR/$BACKUP_ROOT_REL"
 
-    local source="$TMP_DIR/.zshrc"
-    local staged="$TMP_DIR/.zshrc.staged"
-    local target="$HOME_DIR/.zshrc"
+  if [[ ! -e "$current" ]]; then
+    info 'No existing ~/.zshrc was found.'
+    return
+  fi
 
-    install -m 0644 "$source" "$staged" ||
-        die "Failed to stage Kali's .zshrc."
+  [[ -f "$current" ]] || die '~/.zshrc exists but is not a regular file.'
 
-    mv -f -- "$staged" "$target" ||
-        die "Failed to install Kali's .zshrc."
+  ORIGINAL_ZSHRC_EXISTS='true'
+  BACKUP_FILE="$HOME_DIR/$BACKUP_ROOT_REL/zshrc.$(date '+%Y%m%d-%H%M%S').$$.bak"
 
-    ZSHRC_INSTALLED=true
+  cp --preserve=mode,timestamps -- "$current" "$BACKUP_FILE"
 
-    success "Kali's .zshrc installed."
+  ok "Backup created: $BACKUP_FILE"
 }
 
+write_managed_files() {
+  section 'Installing managed Kali configuration'
 
-# -----------------------------------------------------------------------------
-# Login shell configuration
-# -----------------------------------------------------------------------------
+  local managed_dir="$HOME_DIR/$MANAGED_ROOT_REL"
+  local managed_file="$managed_dir/kali-upstream.zshrc"
+  local managed_tmp="$TMP_DIR/kali-upstream.zshrc.new"
+  local user_zshrc_tmp="$TMP_DIR/user.zshrc.new"
+  local user_zshrc="$HOME_DIR/.zshrc"
+
+  mkdir -p "$managed_dir"
+
+  if [[ -f "$managed_file" ]]; then
+    ROLLBACK_MANAGED_PREV="$TMP_DIR/kali-upstream.zshrc.prev"
+    cp -- "$managed_file" "$ROLLBACK_MANAGED_PREV"
+  fi
+
+  install -m 0644 "$TMP_DIR/upstream.zshrc" "$managed_tmp"
+  mv -f -- "$managed_tmp" "$managed_file"
+  MANAGED_ZSHRC_REPLACED='true'
+
+  cat > "$user_zshrc_tmp" <<EOF
+# Generated by kali-like-teminal (${SCRIPT_VERSION}) on $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+# Previous file is backed up under: ~/${BACKUP_ROOT_REL}
+# To stop using this setup, restore a backup and change your shell with:
+#   chsh -s /bin/bash
+
+if [ -r "\$HOME/${MANAGED_ROOT_REL}/kali-upstream.zshrc" ]; then
+  . "\$HOME/${MANAGED_ROOT_REL}/kali-upstream.zshrc"
+else
+  printf '%s\n' 'kali-like-teminal: missing managed upstream file.' >&2
+fi
+EOF
+
+  zsh -n "$user_zshrc_tmp" || die 'Generated ~/.zshrc wrapper failed syntax validation.'
+
+  install -m 0644 "$user_zshrc_tmp" "$user_zshrc"
+  ZSHRC_REPLACED='true'
+
+  ok "Installed managed upstream file: $managed_file"
+  ok "Installed user wrapper: $user_zshrc"
+}
 
 configure_login_shell() {
-    section "Configuring Zsh as the default login shell"
+  section 'Configuring default login shell'
 
-    local zsh_path
-    zsh_path="$(command -v zsh)"
+  local current_shell
+  current_shell="$(getent passwd "$CURRENT_USER" | awk -F: '{print $7}')"
 
-    if ! grep -Fxq "$zsh_path" /etc/shells; then
-        info "Adding $zsh_path to /etc/shells..."
+  if ! grep -Fxq "$ZSH_PATH" /etc/shells; then
+    info "Adding $ZSH_PATH to /etc/shells"
+    printf '%s\n' "$ZSH_PATH" | sudo tee -a /etc/shells >/dev/null
+  fi
 
-        printf '%s\n' "$zsh_path" |
-            sudo tee -a /etc/shells >/dev/null
+  if [[ "$current_shell" == "$ZSH_PATH" ]]; then
+    ok 'Default login shell is already zsh.'
+    return
+  fi
 
-        grep -Fxq "$zsh_path" /etc/shells ||
-            die "Failed to add Zsh to /etc/shells."
+  info "Changing login shell from $current_shell to $ZSH_PATH"
+  chsh -s "$ZSH_PATH" "$CURRENT_USER"
+  LOGIN_SHELL_CHANGED='true'
 
-        SHELL_ENTRY_ADDED=true
-    fi
+  local resulting_shell
+  resulting_shell="$(getent passwd "$CURRENT_USER" | awk -F: '{print $7}')"
+  [[ "$resulting_shell" == "$ZSH_PATH" ]] || die 'Could not verify updated login shell.'
 
-    ORIGINAL_LOGIN_SHELL="$(
-        getent passwd "$CURRENT_USER" | cut -d: -f7
-    )"
-
-    [[ -n "$ORIGINAL_LOGIN_SHELL" ]] ||
-        die "Could not determine the current login shell."
-
-    if [[ "$ORIGINAL_LOGIN_SHELL" == "$zsh_path" ]]; then
-        success "Zsh is already the default login shell."
-        return
-    fi
-
-    info "Current login shell: $ORIGINAL_LOGIN_SHELL"
-    info "New login shell:     $zsh_path"
-
-    chsh -s "$zsh_path" "$CURRENT_USER" ||
-        die "Failed to change the default login shell."
-
-    LOGIN_SHELL_CHANGED=true
-
-    local resulting_shell
-    resulting_shell="$(
-        getent passwd "$CURRENT_USER" | cut -d: -f7
-    )"
-
-    [[ "$resulting_shell" == "$zsh_path" ]] ||
-        die "Could not verify the new login shell."
-
-    success "Zsh is now the default login shell."
+  ok 'Default login shell updated to zsh.'
 }
-
-
-# -----------------------------------------------------------------------------
-# Final verification
-# -----------------------------------------------------------------------------
 
 final_verification() {
-    section "Final verification"
+  section 'Final verification'
 
-    local zsh_path
-    local login_shell
+  local login_shell
+  login_shell="$(getent passwd "$CURRENT_USER" | awk -F: '{print $7}')"
 
-    zsh_path="$(command -v zsh)"
-    login_shell="$(
-        getent passwd "$CURRENT_USER" | cut -d: -f7
-    )"
+  [[ -f "$HOME_DIR/.zshrc" ]] || die '~/.zshrc was not installed.'
+  [[ -f "$HOME_DIR/$MANAGED_ROOT_REL/kali-upstream.zshrc" ]] || die 'Managed upstream file missing after installation.'
+  [[ "$login_shell" == "$ZSH_PATH" ]] || die 'Default shell verification failed.'
 
-    [[ "$login_shell" == "$zsh_path" ]] ||
-        die "Final login-shell verification failed."
+  zsh -n "$HOME_DIR/.zshrc" || die 'Installed ~/.zshrc is not valid zsh syntax.'
+  zsh -n "$HOME_DIR/$MANAGED_ROOT_REL/kali-upstream.zshrc" || die 'Installed managed upstream file is not valid zsh syntax.'
 
-    [[ -f "$HOME_DIR/.zshrc" ]] ||
-        die "$HOME_DIR/.zshrc does not exist."
-
-    zsh -n "$HOME_DIR/.zshrc" ||
-        die "Installed ~/.zshrc failed final Zsh syntax validation."
-
-    [[ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] ||
-        die "Syntax-highlighting verification failed."
-
-    [[ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]] ||
-        die "Autosuggestions verification failed."
-
-    success "Login shell:             $login_shell"
-    success "Kali ~/.zshrc:           valid"
-    success "Syntax highlighting:     installed"
-    success "Autosuggestions:         installed"
+  ok "Default shell: $login_shell"
+  ok 'Installed shell configuration is internally consistent.'
 }
 
+print_summary() {
+  printf '\n\033[1;32mInstallation completed successfully.\033[0m\n\n'
+  printf 'What changed:\n'
+  printf '  - Installed/verified required packages\n'
+  printf '  - Downloaded current Kali upstream .zshrc\n'
+  printf '  - Installed managed upstream file at ~/.local/share/kali-like-terminal/\n'
+  printf '  - Replaced ~/.zshrc with a safe wrapper\n'
+  printf '  - Set default login shell to zsh\n\n'
 
-# -----------------------------------------------------------------------------
-# Main
-# -----------------------------------------------------------------------------
+  if [[ -n "$BACKUP_FILE" ]]; then
+    printf 'Backup created:\n  %s\n\n' "$BACKUP_FILE"
+  fi
+
+  printf 'Next steps:\n'
+  printf '  1) Log out and log back in, or run: exec zsh\n'
+  printf '  2) Verify default shell: echo "$SHELL"\n'
+  printf '  3) Restore previous config if needed: cp <backup> ~/.zshrc\n\n'
+}
 
 main() {
-    printf '\n'
-    printf '\033[1;35m============================================\033[0m\n'
-    printf '\033[1;35m       Kali-like Terminal Zsh Setup        \033[0m\n'
-    printf '\033[1;35m          Ubuntu-family installer          \033[0m\n'
-    printf '\033[1;35m============================================\033[0m\n'
+  printf '\n\033[1;35m==============================================\033[0m\n'
+  printf '\033[1;35m   kali-like-teminal | Ubuntu-family setup   \033[0m\n'
+  printf '\033[1;35m==============================================\033[0m\n'
 
-    check_environment
-    install_packages
-    verify_dependencies
-    download_kali_zshrc
-    validate_kali_zshrc
-    backup_existing_zshrc
-    install_kali_zshrc
-    configure_login_shell
-    final_verification
+  check_environment
+  apt_install_packages
+  verify_runtime_dependencies
+  download_upstream_zshrc
+  validate_upstream_zshrc
+  backup_existing_user_zshrc
+  write_managed_files
+  configure_login_shell
+  final_verification
 
-    printf '\n'
-    printf '\033[1;32mInstallation completed successfully.\033[0m\n\n'
-
-    printf 'Log out and log back in to start using Zsh automatically.\n'
-    printf 'Or test immediately with:\n\n'
-    printf '  \033[1;36mexec zsh\033[0m\n\n'
-
-    if [[ -n "${BACKUP_FILE:-}" ]]; then
-        printf 'Previous ~/.zshrc backup:\n'
-        printf '  \033[1;36m%s\033[0m\n\n' "$BACKUP_FILE"
-    fi
+  COMPLETED='true'
+  trap - ERR INT TERM
+  print_summary
 }
 
 main "$@"
-```
