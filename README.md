@@ -276,6 +276,8 @@ Your environment may restrict shell changes (policy/SSO/container). The rest of 
 
 The generated `~/.zshrc` tries to load both files automatically so `source ~/.zshrc` is usually enough. If a file contains Bash-specific constructs that are not fully compatible with Zsh, the wrapper continues and prints a warning.
 
+The user-overrides loader also ignores invalid `setopt` / `unsetopt` values and Bash-only `shopt` lines with a warning, so migrated legacy content is less likely to break interactive shell startup.
+
 ### I reinstalled and want to keep my custom `~/.zshrc` additions
 
 The installer now migrates custom content into:

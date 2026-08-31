@@ -9,7 +9,7 @@ umask 077
 
 export PATH='/usr/sbin:/usr/bin:/sbin:/bin'
 
-readonly SCRIPT_VERSION='v1.1.0'
+readonly SCRIPT_VERSION='v1.1.1'
 readonly KALI_ZSHRC_URL='https://gitlab.com/kalilinux/packages/kali-defaults/-/raw/kali/master/etc/skel/.zshrc'
 readonly MAX_ZSHRC_SIZE=262144
 readonly MIN_ZSHRC_SIZE=1024
@@ -625,9 +625,38 @@ else
 fi
 
 # Load preserved user customizations after Kali config.
-if [ -r "\$HOME/${CONFIG_ROOT_REL}/user-overrides.zsh" ]; then
-  . "\$HOME/${CONFIG_ROOT_REL}/user-overrides.zsh"
-fi
+_klt_source_user_overrides() {
+  local file="\$1"
+  [ -r "\$file" ] || return 0
+
+  setopt() {
+    if ! builtin setopt "\$@" 2>/dev/null; then
+      printf '%s\n' "kali-like-teminal: warning: ignored invalid setopt in \$file: setopt \$*" >&2
+    fi
+    return 0
+  }
+
+  unsetopt() {
+    if ! builtin unsetopt "\$@" 2>/dev/null; then
+      printf '%s\n' "kali-like-teminal: warning: ignored invalid unsetopt in \$file: unsetopt \$*" >&2
+    fi
+    return 0
+  }
+
+  shopt() {
+    printf '%s\n' "kali-like-teminal: warning: ignored bash-only shopt in \$file." >&2
+    return 0
+  }
+
+  if ! . "\$file"; then
+    printf '%s\n' "kali-like-teminal: warning: user overrides returned non-zero status: \$file" >&2
+  fi
+
+  unfunction setopt unsetopt shopt >/dev/null 2>&1 || true
+}
+
+_klt_source_user_overrides "\$HOME/${CONFIG_ROOT_REL}/user-overrides.zsh"
+unset -f _klt_source_user_overrides
 ${MANAGED_BLOCK_END}
 EOF
 
