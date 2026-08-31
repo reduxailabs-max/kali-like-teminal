@@ -47,6 +47,7 @@ COMPLETED='false'
 
 MIGRATION_RESULT='none'
 MIGRATION_NOTE=''
+SANITIZE_NOTE=''
 
 info() {
   printf '\033[1;34m[INFO]\033[0m %s\n' "$*"
@@ -576,6 +577,43 @@ backup_existing_user_zshrc() {
   ok "Backup created: $BACKUP_FILE"
 }
 
+sanitize_overrides_file() {
+  section 'Sanitizing persistent user overrides'
+
+  create_overrides_file_if_missing
+
+  local src="$OVERRIDES_FILE"
+  local dst="$TMP_DIR/user-overrides.sanitized.zsh"
+  local changed='false'
+
+  : > "$dst"
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^[[:space:]]*shopt([[:space:]]|$) ]]; then
+      printf '# klt-disabled bash-only: %s\n' "$line" >> "$dst"
+      changed='true'
+      continue
+    fi
+
+    if [[ "$line" =~ ^[[:space:]]*(setopt|unsetopt)[[:space:]].*CHECKWINSIZE([[:space:]]|$) ]]; then
+      printf '# klt-disabled invalid-in-zsh: %s\n' "$line" >> "$dst"
+      changed='true'
+      continue
+    fi
+
+    printf '%s\n' "$line" >> "$dst"
+  done < "$src"
+
+  if [[ "$changed" == 'true' ]]; then
+    zsh -n "$dst" || die 'Sanitized user-overrides file failed syntax validation.'
+    install -m 0644 "$dst" "$OVERRIDES_FILE"
+    SANITIZE_NOTE='Commented legacy bash-only lines (shopt/CHECKWINSIZE) in user-overrides.'
+    warn 'Commented legacy bash-only override lines to prevent zsh startup warnings.'
+  else
+    info 'No known legacy bash-only lines found in user overrides.'
+  fi
+}
+
 write_managed_files() {
   section 'Installing managed Kali configuration'
 
@@ -625,38 +663,9 @@ else
 fi
 
 # Load preserved user customizations after Kali config.
-_klt_source_user_overrides() {
-  local file="\$1"
-  [ -r "\$file" ] || return 0
-
-  setopt() {
-    if ! builtin setopt "\$@" 2>/dev/null; then
-      printf '%s\n' "kali-like-teminal: warning: ignored invalid setopt in \$file: setopt \$*" >&2
-    fi
-    return 0
-  }
-
-  unsetopt() {
-    if ! builtin unsetopt "\$@" 2>/dev/null; then
-      printf '%s\n' "kali-like-teminal: warning: ignored invalid unsetopt in \$file: unsetopt \$*" >&2
-    fi
-    return 0
-  }
-
-  shopt() {
-    printf '%s\n' "kali-like-teminal: warning: ignored bash-only shopt in \$file." >&2
-    return 0
-  }
-
-  if ! . "\$file"; then
-    printf '%s\n' "kali-like-teminal: warning: user overrides returned non-zero status: \$file" >&2
-  fi
-
-  unfunction setopt unsetopt shopt >/dev/null 2>&1 || true
-}
-
-_klt_source_user_overrides "\$HOME/${CONFIG_ROOT_REL}/user-overrides.zsh"
-unset -f _klt_source_user_overrides
+if [ -r "\$HOME/${CONFIG_ROOT_REL}/user-overrides.zsh" ]; then
+  . "\$HOME/${CONFIG_ROOT_REL}/user-overrides.zsh"
+fi
 ${MANAGED_BLOCK_END}
 EOF
 
@@ -734,6 +743,9 @@ print_summary() {
   if [[ -n "$MIGRATION_NOTE" ]]; then
     printf '  %s\n' "$MIGRATION_NOTE"
   fi
+  if [[ -n "$SANITIZE_NOTE" ]]; then
+    printf '  %s\n' "$SANITIZE_NOTE"
+  fi
   printf '\n'
 
   printf 'Next steps:\n'
@@ -754,6 +766,7 @@ main() {
   validate_upstream_zshrc
   backup_existing_user_zshrc
   migrate_existing_zshrc_customizations
+  sanitize_overrides_file
   write_managed_files
   configure_login_shell
   final_verification

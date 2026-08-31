@@ -276,7 +276,7 @@ Your environment may restrict shell changes (policy/SSO/container). The rest of 
 
 The generated `~/.zshrc` tries to load both files automatically so `source ~/.zshrc` is usually enough. If a file contains Bash-specific constructs that are not fully compatible with Zsh, the wrapper continues and prints a warning.
 
-The user-overrides loader also ignores invalid `setopt` / `unsetopt` values and Bash-only `shopt` lines with a warning, so migrated legacy content is less likely to break interactive shell startup.
+During reinstall, the installer also sanitizes common Bash-only legacy lines in `user-overrides.zsh` (such as `shopt` and `CHECKWINSIZE`) by commenting them out with a `klt-disabled` prefix to reduce repeated startup warnings.
 
 ### I reinstalled and want to keep my custom `~/.zshrc` additions
 
