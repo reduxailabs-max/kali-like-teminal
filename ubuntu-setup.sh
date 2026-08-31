@@ -9,7 +9,7 @@ umask 077
 
 export PATH='/usr/sbin:/usr/bin:/sbin:/bin'
 
-readonly SCRIPT_VERSION='1.0.0'
+readonly SCRIPT_VERSION='v1.0'
 readonly KALI_ZSHRC_URL='https://gitlab.com/kalilinux/packages/kali-defaults/-/raw/kali/master/etc/skel/.zshrc'
 readonly MAX_ZSHRC_SIZE=262144
 readonly MIN_ZSHRC_SIZE=1024
