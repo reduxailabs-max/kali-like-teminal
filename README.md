@@ -15,7 +15,7 @@ A production-ready installer for getting a **Kali-like Zsh terminal experience**
 - Validates downloaded content before applying it
 - Backs up your existing `~/.zshrc`
 - Installs the upstream Kali config as a managed file in your home directory
-- Installs a small `~/.zshrc` wrapper that auto-loads `~/.profile` and `~/.bashrc` (best-effort), then sources the managed upstream file
+- Installs a small marker-managed `~/.zshrc` wrapper that auto-loads `~/.profile` and `~/.bashrc` (best-effort), then sources Kali upstream and persistent user overrides
 - Sets your default login shell to Zsh (if not already)
 - Performs final consistency checks
 
@@ -149,7 +149,10 @@ Optional (if available in your repositories):
 Managed files created in your home directory:
 
 - `~/.local/share/kali-like-terminal/kali-upstream.zshrc` (downloaded upstream config)
-- `~/.zshrc` (generated wrapper that attempts to source `~/.profile` and `~/.bashrc`, then sources the managed upstream file)
+- `~/.zshrc` (generated marker-managed wrapper)
+- `~/.config/kali-like-terminal/user-overrides.zsh` (persistent user customizations loaded after Kali upstream config)
+- `~/.config/kali-like-terminal/migrations/` (archives for legacy unmanaged `~/.zshrc` when manual review is safer)
+- `~/.local/state/kali-like-terminal/state` (migration state for idempotent re-runs)
 
 Backups:
 
@@ -179,7 +182,8 @@ Each run converges to the same intended final state:
 
 - packages present
 - latest upstream Kali `.zshrc` downloaded
-- wrapper + managed file in place (with legacy profile/bashrc loading)
+- wrapper + managed file + persistent overrides in place
+- prior custom content migrated once per unique previous `~/.zshrc` hash
 - login shell set to Zsh
 
 A new backup is created whenever a pre-existing `~/.zshrc` is present.
@@ -271,6 +275,20 @@ Your environment may restrict shell changes (policy/SSO/container). The rest of 
 ### Legacy `.bashrc` / `.profile` warning appears
 
 The generated `~/.zshrc` tries to load both files automatically so `source ~/.zshrc` is usually enough. If a file contains Bash-specific constructs that are not fully compatible with Zsh, the wrapper continues and prints a warning.
+
+### I reinstalled and want to keep my custom `~/.zshrc` additions
+
+The installer now migrates custom content into:
+
+- `~/.config/kali-like-terminal/user-overrides.zsh`
+
+Migration behavior:
+
+- Marker-managed old wrappers: non-managed lines outside the managed block are imported automatically.
+- Legacy wrappers from earlier project versions: custom lines are extracted and imported when safely parseable.
+- Unmanaged legacy `~/.zshrc`: archived in `~/.config/kali-like-terminal/migrations/` for manual review (not auto-executed for safety).
+
+This keeps reinstalls fresh while preserving user customizations safely.
 
 ---
 
