@@ -15,7 +15,7 @@ A production-ready installer for getting a **Kali-like Zsh terminal experience**
 - Validates downloaded content before applying it
 - Backs up your existing `~/.zshrc`
 - Installs the upstream Kali config as a managed file in your home directory
-- Installs a small `~/.zshrc` wrapper that sources the managed upstream file
+- Installs a small `~/.zshrc` wrapper that auto-loads `~/.profile` and `~/.bashrc` (best-effort), then sources the managed upstream file
 - Sets your default login shell to Zsh (if not already)
 - Performs final consistency checks
 
@@ -149,7 +149,7 @@ Optional (if available in your repositories):
 Managed files created in your home directory:
 
 - `~/.local/share/kali-like-terminal/kali-upstream.zshrc` (downloaded upstream config)
-- `~/.zshrc` (generated wrapper that sources the managed upstream file)
+- `~/.zshrc` (generated wrapper that attempts to source `~/.profile` and `~/.bashrc`, then sources the managed upstream file)
 
 Backups:
 
@@ -179,7 +179,7 @@ Each run converges to the same intended final state:
 
 - packages present
 - latest upstream Kali `.zshrc` downloaded
-- wrapper + managed file in place
+- wrapper + managed file in place (with legacy profile/bashrc loading)
 - login shell set to Zsh
 
 A new backup is created whenever a pre-existing `~/.zshrc` is present.
@@ -267,6 +267,10 @@ This can happen with temporary network issues or upstream format changes. Retry 
 ### `chsh` failed
 
 Your environment may restrict shell changes (policy/SSO/container). The rest of the installation may still be present; you can run `zsh` manually.
+
+### Legacy `.bashrc` / `.profile` warning appears
+
+The generated `~/.zshrc` tries to load both files automatically so `source ~/.zshrc` is usually enough. If a file contains Bash-specific constructs that are not fully compatible with Zsh, the wrapper continues and prints a warning.
 
 ---
 

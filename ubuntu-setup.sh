@@ -367,6 +367,20 @@ write_managed_files() {
 # To stop using this setup, restore a backup and change your shell with:
 #   chsh -s /bin/bash
 
+_klt_source_legacy_file() {
+  local file="\$1"
+  if [ -r "\$file" ]; then
+    if ! . "\$file" >/dev/null 2>&1; then
+      printf '%s\n' "kali-like-teminal: warning: could not fully source \$file in zsh; continuing." >&2
+    fi
+  fi
+}
+
+# Load existing profile/bash customizations first (best-effort), then apply Kali upstream config.
+_klt_source_legacy_file "\$HOME/.profile"
+_klt_source_legacy_file "\$HOME/.bashrc"
+unset -f _klt_source_legacy_file
+
 if [ -r "\$HOME/${MANAGED_ROOT_REL}/kali-upstream.zshrc" ]; then
   . "\$HOME/${MANAGED_ROOT_REL}/kali-upstream.zshrc"
 else
@@ -433,7 +447,7 @@ print_summary() {
   printf '  - Installed/verified required packages\n'
   printf '  - Downloaded current Kali upstream .zshrc\n'
   printf '  - Installed managed upstream file at ~/.local/share/kali-like-terminal/\n'
-  printf '  - Replaced ~/.zshrc with a safe wrapper\n'
+  printf '  - Replaced ~/.zshrc with a wrapper that loads ~/.profile and ~/.bashrc, then Kali config\n'
   printf '  - Set default login shell to zsh\n\n'
 
   if [[ -n "$BACKUP_FILE" ]]; then
