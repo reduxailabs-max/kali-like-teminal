@@ -601,16 +601,22 @@ sanitize_overrides_file() {
       continue
     fi
 
+    if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?(PROMPT|PS1|RPROMPT|RPS1)= ]]; then
+      printf '# klt-disabled prompt-override (preserve Kali prompt): %s\n' "$line" >> "$dst"
+      changed='true'
+      continue
+    fi
+
     printf '%s\n' "$line" >> "$dst"
   done < "$src"
 
   if [[ "$changed" == 'true' ]]; then
     zsh -n "$dst" || die 'Sanitized user-overrides file failed syntax validation.'
     install -m 0644 "$dst" "$OVERRIDES_FILE"
-    SANITIZE_NOTE='Commented legacy bash-only lines (shopt/CHECKWINSIZE) in user-overrides.'
-    warn 'Commented legacy bash-only override lines to prevent zsh startup warnings.'
+    SANITIZE_NOTE='Commented incompatible legacy lines and prompt overrides (shopt/CHECKWINSIZE/PROMPT/PS1) in user-overrides.'
+    warn 'Commented incompatible override lines to prevent zsh warnings and preserve Kali prompt.'
   else
-    info 'No known legacy bash-only lines found in user overrides.'
+    info 'No known incompatible or prompt-override lines found in user overrides.'
   fi
 }
 
